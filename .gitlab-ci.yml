@@ -1,0 +1,181 @@
+stages:
+    - build
+    - push_image
+    - retag
+    - deploy
+    - check
+
+
+variables:
+    SERVICE_NAME: cartera
+    STACK: vulcano
+    SERVICE_PATH: reasignacion-cartera
+    GIT_SUBMODULE_STRATEGY: recursive
+
+services:
+    - docker:dind
+
+image: docker:latest
+
+.build:
+    stage: build
+    image: maven:latest
+    script:
+        - mvn compile --batch-mode -DskipTests=false
+        - mvn verify --batch-mode
+    variables:
+        MAVEN_OPTS: "-Dmaven.repo.local=/root/.m2 "
+    cache:
+        paths:
+            - .m2/
+    artifacts:
+        paths:
+            - 'target/*.jar'
+    tags:
+        - docker
+
+.push_image:
+    stage: push_image
+    before_script:
+        - apk add --no-cache python py-pip
+        - pip install awscli
+        - export VERSION=$(date +%Y%m%d%H%M)
+        - export AWS_DEFAULT_REGION=$(eval echo \$${_ENV}_AWS_REGION)
+        - export AWS_ACCESS_KEY_ID=$(eval echo \$${_ENV}_EKS_AWS_ACCESS_KEY_ID)
+        - export AWS_SECRET_ACCESS_KEY=$(eval echo \$${_ENV}_EKS_AWS_SECRET_ACCESS_KEY)
+        - $(aws ecr get-login --no-include-email)
+    artifacts:
+        paths:
+            - '*.jar'
+    tags:
+        - docker
+
+.retag:
+    stage: retag
+    before_script:
+        - apk add --no-cache python py-pip
+        - pip install awscli
+        - export AWS_DEFAULT_REGION=$(eval echo \$${_ENV}_AWS_REGION)
+        - export AWS_ACCESS_KEY_ID=$(eval echo \$${_ENV}_EKS_AWS_ACCESS_KEY_ID)
+        - export AWS_SECRET_ACCESS_KEY=$(eval echo \$${_ENV}_EKS_AWS_SECRET_ACCESS_KEY)
+        - $(aws ecr get-login --no-include-email)
+    script:
+        - export VERSION=$(cat version)
+        - docker load -i docker/$CI_PROJECT_NAME:$VERSION.tar
+        - docker tag $DEV_REGISTRY/$CI_PROJECT_NAME:$VERSION $(eval echo \$${_ENV}_REGISTRY)/$CI_PROJECT_NAME:$VERSION
+        - docker push $(eval echo \$${_ENV}_REGISTRY)/$CI_PROJECT_NAME:$VERSION
+    tags:
+        - docker
+
+.deploy:
+    stage: deploy
+    before_script:
+        - apk add --no-cache curl git bash
+        - curl -o /bin/aws-iam-authenticator https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/aws-iam-authenticator
+        - curl -o /bin/kubectl https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/kubectl
+        - curl -O -L https://github.com/kubernetes-sigs/kustomize/releases/download/v1.0.11/kustomize_1.0.11_linux_amd64
+        - mv kustomize_*_linux_amd64 /bin/kustomize
+        - chmod +x /bin/aws-iam-authenticator /bin/kubectl /bin/kustomize
+        - sed -i "s,#CLUSTER_URL#,$(eval echo \$${_ENV}_EKS_URL),g" despliegue/kubeconfig.yaml
+        - sed -i "s/#CERT_AUTHORITY#/$(eval echo \$${_ENV}_EKS_CERT_AUTH)/g" despliegue/kubeconfig.yaml
+        - sed -i "s/#CLUSTER_NAME#/$(eval echo \$${_ENV}_CLUSTER_NAME)/g" despliegue/kubeconfig.yaml
+        - export AWS_DEFAULT_REGION=$(eval echo \$${_ENV}_AWS_REGION)
+        - export AWS_ACCESS_KEY_ID=$(eval echo \$${_ENV}_EKS_AWS_ACCESS_KEY_ID)
+        - export AWS_SECRET_ACCESS_KEY=$(eval echo \$${_ENV}_EKS_AWS_SECRET_ACCESS_KEY)
+        - export KUBECONFIG=./despliegue/kubeconfig.yaml
+        - export VERSION=$(cat version)
+        - git submodule sync --recursive
+        - git submodule update --recursive --remote
+    tags:
+        - docker
+    environment:
+        name: $_ENV
+
+.check:
+    stage: check
+    image:
+        name: bennu/availablecheck:latest
+        entrypoint:
+            - ""
+    tags:
+        - docker
+
+# dev stages
+build:dev:
+    extends: .build
+    except:
+        - master
+
+push_image:dev:
+    extends: .push_image
+    variables:
+        _ENV: DEV
+    script:
+        - export VERSION=$CI_COMMIT_REF_NAME
+        - docker build -t $(eval echo \$${_ENV}_REGISTRY)/$CI_PROJECT_NAME:$VERSION -t $(eval echo \$${_ENV}_REGISTRY)/$CI_PROJECT_NAME:latest .
+        - docker push $(eval echo \$${_ENV}_REGISTRY)/$CI_PROJECT_NAME
+    except:
+        - master
+
+deploy:dev:
+    extends: .deploy
+    variables:
+        _ENV: DEV
+    script:
+        - export VERSION=$CI_COMMIT_REF_NAME
+        - ./despliegue/utils/deploy
+    except:
+        - master
+    dependencies: []
+
+availablecheck:dev:
+    extends: .check
+    script:
+        - availablecheck $DEV_ENDPOINT/$SERVICE_PATH/healthcheck 3
+    except:
+        - master
+    dependencies: []
+
+# TestDev stages
+build:test:
+    extends: .build
+    variables:
+        _ENV: DEV
+    only:
+        - master
+
+push_image:test:
+    extends: .push_image
+    variables:
+        _ENV: DEV
+    script:
+        - docker build -t $(eval echo \$${_ENV}_REGISTRY)/$CI_PROJECT_NAME:$VERSION .
+        - docker push $(eval echo \$${_ENV}_REGISTRY)/$CI_PROJECT_NAME
+        - mkdir -p docker/
+        - docker save $(eval echo \$${_ENV}_REGISTRY)/$CI_PROJECT_NAME:$VERSION -o docker/$CI_PROJECT_NAME:$VERSION.tar
+        - echo $VERSION > version
+    only:
+        - master
+    artifacts:
+        paths:
+            - "docker/*.tar"
+            - "version"
+
+deploy:test:
+    extends: .deploy
+    variables:
+        _ENV: DEV
+        ENV: test
+    script:
+        - ./despliegue/utils/deploy
+    only:
+        - master
+    dependencies: []
+
+availablecheck:test:
+    extends: .check
+    script:
+        - availablecheck $TEST_ENDPOINT/$SERVICE_PATH/healthcheck 3
+    only:
+        - master
+    dependencies: []

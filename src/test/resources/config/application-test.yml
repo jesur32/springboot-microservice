@@ -1,0 +1,32 @@
+spring:
+   profiles: test
+   application:
+        name: #project.artifactId#
+   jackson:
+     serialization.write_dates_as_timestamps: true
+   mvc:
+     throw-exception-if-no-handler-found: true
+
+info:
+    project:
+        name: #project.artifactId#
+        version: #project.version#
+
+management:
+  endpoint:
+    health:
+      show-details: always
+  endpoints:
+    web:
+      base-path: /
+      path-mapping:
+         health: /jesu/healthcheck
+
+
+server:
+    port: ${PORT:8080}
+    compression:
+       enabled: ${COMPRESSION_ENABLED:true}
+       mime-types: application/json
+
+
