@@ -8,8 +8,8 @@ spring:
    mvc:
      throw-exception-if-no-handler-found: true
    datasource:
-     driverClassName: com.mysql.jdbc.Driver
-     url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}
+     driverClassName: com.mysql.cj.jdbc.Driver
+     url: jdbc:mysql://${DB_HOST}:${DB_PORT}/sys?useSSL=FALSE
      username: ${DB_USER}
      password: ${DB_PASS}
    jdbc:

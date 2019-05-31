@@ -6,6 +6,14 @@ spring:
      serialization.write_dates_as_timestamps: true
    mvc:
      throw-exception-if-no-handler-found: true
+   datasource:
+     driverClassName: com.mysql.cj.jdbc.Driver
+     url: jdbc:mysql://${DB_HOST}:${DB_PORT}
+     username: ${DB_USER}
+     password: ${DB_PASS}
+   jdbc:
+     template:
+        fetch-size: ${FETCH_SIZE:200}
 
 info:
     project:
@@ -28,5 +36,3 @@ server:
     compression:
        enabled: ${COMPRESSION_ENABLED:true}
        mime-types: application/json
-
-

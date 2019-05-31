@@ -1,3 +1,11 @@
+FROM maven:3.5-jdk-8 as BUILD
+
+COPY pom.xml /usr/src/app/
+RUN mvn -f /usr/src/app/pom.xml verify clean --fail-never
+
+COPY src /usr/src/app/src
+RUN mvn -f /usr/src/app/pom.xml verify --batch-mode -DskipTests=true
+
 FROM fabric8/java-alpine-openjdk8-jre:1.5
 
 LABEL maintainer="jesus.cabezas@bennu.cl"
@@ -15,6 +23,7 @@ ENV SPRING_OUTPUT_ANSI_ENABLED=ALWAYS \
     JAVA_APP_DIR=/opt/app \
     JAVA_OPTIONS="-Djava.security.egd=file:/dev/./urandom -Duser.timezone=America/Santiago"
 
-COPY target/*.jar app.jar
+COPY --from=BUILD  /usr/src/app/target/*.jar app.jar
+
 
 USER jesu
