@@ -9,3 +9,11 @@ Controller, Service, Repository , Healthcheck, RestExceptionHandler, AopLogging 
 Folders: 
 
 Rest , Service, Repository , Domain and Config
+
+## Installation 
+
+```bash
+ git clone https://github.com/jesur32/springboot-microservice.git 
+ cd springboot-microservice
+ mvn spring-boot:run 
+``` 
